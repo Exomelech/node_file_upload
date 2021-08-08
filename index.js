@@ -1,45 +1,48 @@
 const express = require('express');
-const jsonParser = express.json();
-const fileUpload = require('express-fileupload');
+const urlencodedParser = express.urlencoded({
+  limit: '10mb',
+  extended: true,
+});
 const cors = require('cors');
-
+const fs = require('fs');
+const path = require('path');
+// const getUuid = require('uuid-by-string');
+const { v1, v5 } = require('uuid');
 const app = express();
+const {isDir, makeDir,} = require('./src/tools');
 
-// enable files upload
-app.use(fileUpload({
-  createParentPath: true
-}));
+const NAMESPACE = '01cab0ba-64a8-4375-927e-c28ba92d50e1';
 
-//add other middleware
 app.use(cors());
 app.use('/uploads', express.static('uploads'));
 
-app.post('/upload', jsonParser, async (req, res) => {
-  try {
-    if(!req.files) {
-      res.send({
-        status: false,
-        message: 'No file uploaded'
-      });
-    } else {
-      //Use the name of the input field (i.e. "image") to retrieve the uploaded file
-      const image = req.files.image;
-      //Use the mv() method to place the file in upload directory (i.e. "uploads")
-      image.mv('./uploads/' + image.name);
+const onImageUpload = async ({image, username, type}, callback) => {
+  // const userUUID = getUuid(username);
+  const userUUID = v5(username, NAMESPACE);
+  const pathExist = await isDir('/uploads/'+userUUID);
+  if (!pathExist) await makeDir(path.join(__dirname, '/uploads/'+userUUID));
+  const decoded_image = Buffer.from(image, 'base64');
+  const file_name = v1();
+  const file_url = `/uploads/${userUUID}/${file_name}.${type}`
+  fs.writeFile('.'+file_url, decoded_image, 'base64', () => callback(file_url));
+};
 
-      //send response
+app.post('/upload', urlencodedParser, async (req, res) => {
+  const { body } = req;
+  if (!body.image || !body.username) {
+    res.send({
+      status: false,
+      message: 'No username or body!'
+    });
+  } else {
+    onImageUpload(body, (file_url) => {
       res.send({
         status: true,
-        message: 'File is uploaded',
         data: {
-          name: image.name,
-          mimetype: image.mimetype,
-          size: image.size,
+          file_url,
         }
       });
-    }
-  } catch (err) {
-    res.status(500).send(err);
+    });
   }
 });
 
